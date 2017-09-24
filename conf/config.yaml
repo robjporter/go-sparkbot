@@ -1,0 +1,7 @@
+server:
+  port: 9090
+  config:
+    charset: UTF-8
+application:
+  name: Sparkbot
+  debug: true
