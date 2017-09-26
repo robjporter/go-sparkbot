@@ -1,12 +1,13 @@
 package app
 
 import (
-	"fmt"
 	"runtime"
 	"sync"
 	"time"
 
 	stdContext "context"
+
+	"../localtunnelme"
 
 	"github.com/Sirupsen/logrus"
 	"github.com/betacraft/yaag/irisyaag"
@@ -17,6 +18,7 @@ import (
 	"github.com/kataras/iris/middleware/recover"
 	"github.com/robjporter/go-utils/filesystem/config"
 	"github.com/robjporter/go-utils/filesystem/path"
+	"github.com/robjporter/go-utils/go/as"
 )
 
 var _init_ctx sync.Once
@@ -27,6 +29,7 @@ func init() {
 	a.conf = config.New()
 	a.Log = logrus.New()
 	a.Server = iris.New()
+	a.Tunnel = localtunnelme.NewTunnel()
 	numCPU := runtime.NumCPU()
 	a.Log.Info("Initialising application...")
 	a.setDefaultsConfig()
@@ -40,10 +43,13 @@ func init() {
 
 // Set Config defaults before anything has a chance to be set
 func (a Application) setDefaultsConfig() {
-	a.conf.Set("application.name", "Default")
+	appName := "Default"
+	a.conf.Set("application.name", appName)
 	a.conf.Set("application.version", "1")
 	a.conf.Set("application.debug", false)
 	a.conf.Set("server.port", 9090)
+	a.conf.Set("server.timeout", 5)
+	a.conf.Set("server.localtunnel.name", appName)
 	a.conf.Set("server.config.charset", "UTF-8")
 	a.conf.Set("server.config.disableautofirestatuscode", false)
 	a.conf.Set("server.config.disablebodyconsumptiononunmarshal", false)
@@ -65,13 +71,16 @@ func (a Application) setServerConfig() {
 	m := prometheusMiddleware.New("serviceName", 300, 1200, 5000)
 	a.Server.Use(m.ServeHTTP)
 	iris.RegisterOnInterrupt(func() {
-		timeout := 5 * time.Second
+		timeout := time.Duration(a.conf.GetInt("server.timeout")) * time.Second
 		ctx, cancel := stdContext.WithTimeout(stdContext.Background(), timeout)
 		defer cancel()
 		// close all hosts
-		fmt.Println("Shutting down server....")
-		a.Log.Info("Wait 10 seconds and check your terminal again")
+		a.Log.Info("Shutting down server....")
+		a.Stop()
+		a.Log.Info("Wait ", a.conf.GetInt("server.timeout"), " seconds and check your terminal again")
+		time.Sleep(time.Duration(a.conf.GetInt("server.timeout")) * time.Second)
 		a.Server.Shutdown(ctx)
+		a.Log.Info("Applciation has been shutdown successfully.")
 	})
 	yaag.Init(&yaag.Config{ // <- IMPORTANT, init the middleware.
 		On:       true,
@@ -83,6 +92,7 @@ func (a Application) setServerConfig() {
 	if a.conf.GetBool("application.debug") {
 		a.Server.Use(irisyaag.New()) // <- IMPORTANT, register the middleware.
 	}
+	a.addRoutes()
 }
 
 // GET
@@ -117,6 +127,48 @@ func (a Application) LoadConfig(data string) {
 		a.Log.Info("Info Logging has been initialised...")
 	}
 }
+func (a Application) createLocalTunnelMe() bool {
+	a.Log.Info("Initialising LocalTunnel.Me config....")
+	url, err := a.Tunnel.GetUrl(a.conf.GetString("server.localtunnel.name"))
+	if err != nil {
+		a.Log.Error(err)
+		return false
+	}
+	a.Log.Info("LOCAL TUNNEL URL:", url)
+	a.conf.Set("server.localtunnel.url", url)
+	go func() {
+		err := a.Tunnel.CreateTunnel(a.conf.GetInt("server.port"))
+		if err != nil {
+			a.Log.Error(err)
+		}
+	}()
+	return true
+}
+
+func (a Application) Stop() {
+	a.Tunnel.StopTunnel()
+	a.Log.Info("LocalTunnelMe service has been stopped successfully....")
+}
+
 func (a Application) Run() {
-	//app.Run(iris.Addr(":9090"), iris.WithConfiguration(serverConfig), iris.WithoutServerError(iris.ErrServerClosed))
+	var serverConfig iris.Configuration
+	a.createLocalTunnelMe()
+	//deleteWebHooks()
+	//registerWebHook()
+	serverConfig.Charset = a.conf.GetString("server.config.charset")
+	serverConfig.DisableAutoFireStatusCode = a.conf.GetBool("server.config.disableautofirestatuscode")
+	serverConfig.DisableBodyConsumptionOnUnmarshal = a.conf.GetBool("server.config.disablebodyconsumptiononunmarshal")
+	serverConfig.DisableInterruptHandler = a.conf.GetBool("server.config.disableinterrupthandler")
+	serverConfig.DisablePathCorrection = a.conf.GetBool("server.config.disablepathcorrection")
+	serverConfig.DisableStartupLog = a.conf.GetBool("server.config.disablestartuplog")
+	serverConfig.DisableVersionChecker = a.conf.GetBool("server.config.disableversionchecker")
+	serverConfig.EnableOptimizations = a.conf.GetBool("server.config.enableoptimizations")
+	serverConfig.EnablePathEscape = a.conf.GetBool("server.config.enablepathescape")
+	serverConfig.FireMethodNotAllowed = a.conf.GetBool("server.config.firemethodnotallowed")
+	serverConfig.TimeFormat = a.conf.GetString("server.config.timeformat")
+
+	a.Server.Run(iris.Addr(":"+as.ToString(a.conf.GetInt("server.port"))),
+		iris.WithConfiguration(serverConfig),
+		iris.WithoutServerError(iris.ErrServerClosed),
+	)
 }

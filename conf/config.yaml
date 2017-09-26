@@ -2,6 +2,13 @@ server:
   port: 9090
   config:
     charset: UTF-8
+  localtunnel:
+    name: roporter1234
 application:
   name: Sparkbot
   debug: true
+spark:
+  hookname: myWebHookTestForSpark
+  token: ZjdiODE0MTctMzc0MS00ZDhkLWE5YjEtNDA4YTczMGJjNWRkMGNkOGRmNzUtYWYx
+  roomid: Y2lzY29zcGFyazovL3VzL1JPT00vOGMyYWFkMTAtYTE0Mi0xMWU3LThmYzEtMWY5YWY0Y2EwOTNm
+

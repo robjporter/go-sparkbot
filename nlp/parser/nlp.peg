@@ -1,0 +1,81 @@
+{
+// Package parser contains the sample parser for nlp
+package parser
+
+import "fmt"
+import "errors"
+
+// Token is a sample token
+type Token struct {
+    Kw bool
+    Val []byte
+}
+
+// ParseSample will return the tokens within the sample
+func ParseSample(sampleID int, sample []byte) ([]Token, error) {
+    samplename := fmt.Sprintf("sample#%d", sampleID)
+    tokens, err := Parse(samplename, sample)
+    var errs errList
+    if err != nil {
+        list := err.(errList)
+        for _, err := range list {
+            pe := err.(*parserError)
+            errs.add(fmt.Errorf("%s: %v", samplename, pe.Inner))
+        }
+        return nil, errs
+    }
+    return tokens.([]Token), nil
+}
+
+}
+
+Sample "sample"
+= vs:(Identifier / Keyword / Spacing)* {
+    if len(vs.([]interface{})) == 0 {
+        return nil, errors.New("empty sample")
+    }
+    var tokens []Token
+    for _, v := range vs.([]interface{}) {
+        switch tk := v.(type) {
+        case Token:
+            tokens = append(tokens, tk)
+        default:
+        }
+    }
+    return tokens, nil
+}
+
+Keyword "keyword"
+= '{' Spacing+ v:Identifier '}' {
+    return Token{Kw: true, Val: v.(Token).Val}, nil
+}
+/ '{' v:Identifier Spacing+ '}' {
+    return Token{Kw: true, Val: v.(Token).Val}, nil
+}
+/ '{' Spacing+ v:Identifier Spacing+ '}' {
+    return Token{Kw: true, Val: v.(Token).Val}, nil
+}
+/ '{' v:Identifier '}' {
+    return Token{Kw: true, Val: v.(Token).Val}, nil
+}
+
+
+Punct "punct"
+= [^a-zA-Z0-9{} ]+ {
+    return Token{Val: c.text}, nil
+}
+
+
+Identifier "identifier"
+= Punct / [^{} \t\r\n]+ {
+    return Token{Val: c.text}, nil
+}
+
+Spacing "spacing"
+= Space+ / _+
+
+Space "Space"
+= ' '
+
+_ "whitespace"
+= [\t\r\n]
